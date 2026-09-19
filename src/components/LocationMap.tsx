@@ -42,7 +42,7 @@ function calculateDistanceMeters(lat1: number, lon1: number, lat2: number, lon2:
 
 interface LocationMapProps {
   currentLocation: CitizenLocation | null;
-  onRequestLocation: () => void;
+  onRequestLocation: () => Promise<CitizenLocation | void> | CitizenLocation | void;
   zones?: FloodZoneOverlay[];
   points?: EmergencyPoint[];
   variant?: 'preview' | 'full';
@@ -74,8 +74,12 @@ export const LocationMap: React.FC<LocationMapProps> = ({
   const activeTileLayerRef = useRef<L.TileLayer | null>(null);
 
   const isFull = variant === 'full';
+  const mapboxToken = (import.meta.env.VITE_MAPBOX_TOKEN || '').trim();
+  const mapboxEnabled = Boolean(mapboxToken);
 
-  const [mapType, setMapType] = useState<'street' | 'satellite'>('street');
+  // Auto-default to the standard map layer so offline cached tiles work immediately.
+  // Mapbox stays available for live test mode, but it is no longer required for the normal offline workflow.
+  const [mapType, setMapType] = useState<'street' | 'satellite' | 'mapbox'>('street');
   const [downloading, setDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<{
     current: number;
@@ -90,6 +94,8 @@ export const LocationMap: React.FC<LocationMapProps> = ({
     point: EmergencyPoint;
     distance: number;
   } | null>(null);
+  const [locationWarning, setLocationWarning] = useState<string | null>(null);
+  const hasCenteredOnUserRef = useRef(false);
 
   // Monitor network status and cached tile count
   useEffect(() => {
@@ -104,7 +110,19 @@ export const LocationMap: React.FC<LocationMapProps> = ({
 
   // Compute nearest safe zone from current location
   useEffect(() => {
-    if (!currentLocation || points.length === 0) {
+    if (!currentLocation) {
+      setLocationWarning('Location permission denied — using current map center.');
+      setNearestSafePoint(null);
+      return;
+    }
+
+    if (currentLocation.isSimulated) {
+      setLocationWarning('Location permission denied — using current map center.');
+    } else {
+      setLocationWarning(null);
+    }
+
+    if (points.length === 0) {
       setNearestSafePoint(null);
       return;
     }
@@ -137,23 +155,29 @@ export const LocationMap: React.FC<LocationMapProps> = ({
   }, [currentLocation, points]);
 
   // Create or switch tile layer
-  const applyTileLayer = useCallback((map: L.Map, type: 'street' | 'satellite') => {
+  const applyTileLayer = useCallback((map: L.Map, type: 'street' | 'satellite' | 'mapbox') => {
     if (activeTileLayerRef.current) {
       map.removeLayer(activeTileLayerRef.current);
     }
 
     const isStreet = type === 'street';
+    const useMapbox = type === 'mapbox' && mapboxEnabled;
 
-    // Reliable tile URLs:
-    // Street: CartoDB Voyager with subdomains, attribution & high-res
-    // Satellite: Esri World Imagery (high-resolution real photographic map)
-    const tileUrl = isStreet
-      ? 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
+    // Real map basemaps:
+    // Street: OpenStreetMap standard tiles (real-world map data)
+    // Satellite: Esri World Imagery (real satellite imagery)
+    // Mapbox: temporary live test layer using the configured token
+    const tileUrl = useMapbox
+      ? `https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/256/{z}/{x}/{y}?access_token=${encodeURIComponent(mapboxToken)}`
+      : isStreet
+      ? 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
       : 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 
-    const attribution = isStreet
-      ? '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-      : 'Tiles &copy; Esri &mdash; Earthstar Geographics';
+    const attribution = useMapbox
+      ? '&copy; <a href="https://www.mapbox.com/about/maps/">Mapbox</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      : isStreet
+      ? '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      : 'Tiles &copy; Esri &mdash; Source: Esri';
 
     // Leaflet TileLayer subclass that uses cache and graceful offline fallback
     const ResilientTileLayer = L.TileLayer.extend({
@@ -161,7 +185,36 @@ export const LocationMap: React.FC<LocationMapProps> = ({
         const tile = (L.TileLayer.prototype as any).createTile.call(this, coords, done) as HTMLImageElement;
         const key = `${coords.z}_${coords.x}_${coords.y}`;
 
-        // Check if cached tile exists in IndexedDB
+        // If the app is offline, prefer cached tiles immediately and do not hit the network.
+        if (!offlineService.isOnline()) {
+          offlineService.getCachedTile(key).then((cachedDataUrl) => {
+            if (cachedDataUrl) {
+              tile.src = cachedDataUrl;
+            } else {
+              const canvas = document.createElement('canvas');
+              canvas.width = 256;
+              canvas.height = 256;
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                ctx.fillStyle = '#f5f5f4';
+                ctx.fillRect(0, 0, 256, 256);
+                ctx.strokeStyle = '#e7e5e4';
+                ctx.strokeRect(0, 0, 256, 256);
+                ctx.fillStyle = '#78716c';
+                ctx.font = 'bold 11px sans-serif';
+                ctx.fillText('नेपाल बाढी क्षेत्र', 16, 28);
+                ctx.font = '10px monospace';
+                ctx.fillStyle = '#a8a29e';
+                ctx.fillText(`Z${coords.z} (${coords.x},${coords.y})`, 16, 44);
+                ctx.fillText('[अफलाइन नक्सा]', 16, 60);
+                tile.src = canvas.toDataURL();
+              }
+            }
+          });
+          return tile;
+        }
+
+        // If online, still prefer the cached tile when it already exists.
         offlineService
           .getCachedTile(key)
           .then((cachedDataUrl) => {
@@ -177,7 +230,6 @@ export const LocationMap: React.FC<LocationMapProps> = ({
             if (cached) {
               tile.src = cached;
             } else {
-              // Create offline canvas indicator
               const canvas = document.createElement('canvas');
               canvas.width = 256;
               canvas.height = 256;
@@ -208,7 +260,8 @@ export const LocationMap: React.FC<LocationMapProps> = ({
       attribution,
       maxZoom: MAP_CONFIG.maxZoom,
       minZoom: MAP_CONFIG.minZoom,
-      subdomains: isStreet ? 'abcd' : 'abc',
+      subdomains: isStreet || useMapbox ? 'abcd' : 'abc',
+      tileSize: useMapbox ? 256 : 256,
     });
 
     newLayer.addTo(map);
@@ -240,15 +293,33 @@ export const LocationMap: React.FC<LocationMapProps> = ({
 
     const map = L.map(mapContainerRef.current, {
       center: initialCenter as L.LatLngExpression,
-      zoom: isFull ? 13 : MAP_CONFIG.zoom,
+      zoom: isFull ? MAP_CONFIG.zoom : MAP_CONFIG.zoom,
       minZoom: MAP_CONFIG.minZoom,
       maxZoom: MAP_CONFIG.maxZoom,
-      zoomControl: false, // We provide custom, clean, collision-free zoom buttons
+      zoomControl: false,
       dragging: interactive,
       touchZoom: interactive,
       scrollWheelZoom: interactive,
       doubleClickZoom: interactive,
       attributionControl: isFull,
+    });
+
+    map.on('click', (event: L.LeafletMouseEvent) => {
+      const { lat, lng } = event.latlng;
+      const popupHtml = `
+        <div style="font-family: sans-serif; padding: 4px; min-width: 170px;">
+          <b style="color: #1d4ed8; font-size: 13px;">📍 Maitidevi / Dillibazar Area</b><br/>
+          <div style="font-size: 11px; color: #374151; margin-top: 4px; line-height: 1.5;">
+            <span>Latitude: ${lat.toFixed(5)}</span><br/>
+            <span>Longitude: ${lng.toFixed(5)}</span>
+          </div>
+        </div>
+      `;
+
+      L.popup({ closeButton: true, autoClose: true })
+        .setLatLng([lat, lng])
+        .setContent(popupHtml)
+        .openOn(map);
     });
 
     applyTileLayer(map, mapType);
@@ -306,6 +377,11 @@ export const LocationMap: React.FC<LocationMapProps> = ({
 
     if (currentLocation) {
       const latlng: L.LatLngExpression = [currentLocation.latitude, currentLocation.longitude];
+
+      if (!hasCenteredOnUserRef.current) {
+        hasCenteredOnUserRef.current = true;
+        map.flyTo(latlng, Math.max(MAP_CONFIG.zoom, 16), { duration: 0.8 });
+      }
 
       if (!userMarkerRef.current) {
         const marker = L.marker(latlng, {
@@ -418,14 +494,12 @@ export const LocationMap: React.FC<LocationMapProps> = ({
   }, [points, filterType]);
 
   // Center on citizen's location
-  const handleCenterOnUser = () => {
-    onRequestLocation();
-    if (mapInstanceRef.current && currentLocation) {
-      mapInstanceRef.current.flyTo(
-        [currentLocation.latitude, currentLocation.longitude],
-        15,
-        { duration: 0.8 }
-      );
+  const handleCenterOnUser = async () => {
+    const loc = await onRequestLocation();
+    if (mapInstanceRef.current && loc) {
+      mapInstanceRef.current.flyTo([loc.latitude, loc.longitude], Math.max(MAP_CONFIG.zoom, 16), {
+        duration: 0.8,
+      });
     }
   };
 
@@ -495,8 +569,8 @@ export const LocationMap: React.FC<LocationMapProps> = ({
   return (
     <div
       id="location-map-root"
-      className={`relative w-full overflow-hidden bg-stone-100 flex flex-col ${
-        isFull ? 'h-full flex-1 min-h-0' : 'rounded-2xl border border-stone-300 shadow-xs'
+      className={`relative z-0 isolate w-full overflow-hidden bg-stone-100 flex flex-col ${
+        isFull ? 'h-full flex-1 min-h-0 border border-stone-200 shadow-inner shadow-stone-200/70' : 'rounded-2xl border border-stone-300 shadow-xs'
       }`}
       style={isFull ? { height: '100%', width: '100%' } : undefined}
     >
@@ -526,24 +600,33 @@ export const LocationMap: React.FC<LocationMapProps> = ({
         />
 
         {/* Top Floating Controls Bar */}
+        {locationWarning && (
+          <div className="absolute top-12 left-2.5 right-2.5 z-[1000] pointer-events-none flex justify-center">
+            <div className="pointer-events-auto bg-amber-500/95 text-stone-950 px-2.5 py-1 rounded-full text-[10px] font-bold border border-amber-300 shadow-md flex items-center gap-1.5">
+              <AlertTriangle className="w-3 h-3" />
+              <span>{locationWarning}</span>
+            </div>
+          </div>
+        )}
+
         <div className="absolute top-2.5 left-2.5 right-2.5 z-[1000] flex items-center justify-between pointer-events-none">
           {/* GPS Status Indicator */}
           {currentLocation ? (
             <div
               id="location-accuracy-pill"
-              className="pointer-events-auto bg-stone-950/85 backdrop-blur-md text-stone-100 px-2.5 py-1 rounded-full text-[11px] font-mono border border-stone-800 shadow-sm flex items-center gap-1.5"
+              className="pointer-events-auto bg-stone-950/80 backdrop-blur-md text-stone-100 px-2.5 py-1 rounded-full text-[10px] font-mono border border-stone-700 shadow-md flex items-center gap-1.5"
             >
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               <span>~{currentLocation.accuracy}m GPS</span>
               {currentLocation.isSimulated && (
-                <span className="bg-amber-500/30 text-amber-300 text-[9px] px-1 rounded uppercase font-bold">
+                <span className="bg-amber-500/25 text-amber-200 text-[8px] px-1 rounded uppercase font-bold">
                   Demo
                 </span>
               )}
             </div>
           ) : (
-            <div className="pointer-events-auto bg-stone-950/85 text-stone-300 px-2.5 py-1 rounded-full text-[11px] flex items-center gap-1.5 border border-stone-800 shadow-sm">
-              <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            <div className="pointer-events-auto bg-stone-950/80 text-stone-300 px-2.5 py-1 rounded-full text-[10px] flex items-center gap-1.5 border border-stone-700 shadow-md">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
               <span>GPS खोजी...</span>
             </div>
           )}
@@ -555,7 +638,7 @@ export const LocationMap: React.FC<LocationMapProps> = ({
                 type="button"
                 id="btn-layer-street"
                 onClick={() => setMapType('street')}
-                className={`px-2 py-0.5 rounded-md font-medium text-[11px] transition-all flex items-center gap-1 ${
+                className={`px-2 py-0.5 rounded-md font-medium text-[10px] transition-all flex items-center gap-1 ${
                   mapType === 'street'
                     ? 'bg-blue-600 text-white shadow-xs font-bold'
                     : 'text-stone-700 hover:text-stone-900'
@@ -568,7 +651,7 @@ export const LocationMap: React.FC<LocationMapProps> = ({
                 type="button"
                 id="btn-layer-satellite"
                 onClick={() => setMapType('satellite')}
-                className={`px-2 py-0.5 rounded-md font-medium text-[11px] transition-all flex items-center gap-1 ${
+                className={`px-2 py-0.5 rounded-md font-medium text-[10px] transition-all flex items-center gap-1 ${
                   mapType === 'satellite'
                     ? 'bg-blue-600 text-white shadow-xs font-bold'
                     : 'text-stone-700 hover:text-stone-900'
@@ -577,6 +660,21 @@ export const LocationMap: React.FC<LocationMapProps> = ({
                 <Layers className="w-3 h-3" />
                 <span>स्याटेलाइट</span>
               </button>
+              {mapboxEnabled && (
+                <button
+                  type="button"
+                  id="btn-layer-mapbox"
+                  onClick={() => setMapType('mapbox')}
+                  className={`px-2 py-0.5 rounded-md font-medium text-[10px] transition-all flex items-center gap-1 ${
+                    mapType === 'mapbox'
+                      ? 'bg-violet-600 text-white shadow-xs font-bold'
+                      : 'text-stone-700 hover:text-stone-900'
+                  }`}
+                >
+                  <Navigation className="w-3 h-3" />
+                  <span>Mapbox</span>
+                </button>
+              )}
             </div>
 
             {showExpandButton && onOpenFullMap && (
@@ -615,25 +713,27 @@ export const LocationMap: React.FC<LocationMapProps> = ({
             </button>
           </div>
 
-          {/* Locate Me */}
-          <button
-            id="btn-map-locate-me"
-            onClick={handleCenterOnUser}
-            title="मेरो स्थान (My Location)"
-            className="bg-white hover:bg-stone-50 text-blue-600 p-2.5 rounded-xl shadow-md border border-stone-300 active:scale-95 transition-all flex items-center justify-center cursor-pointer"
-          >
-            <Locate className="w-4 h-4" />
-          </button>
+          <div className="flex flex-col gap-1.5">
+            {/* Locate Me */}
+            <button
+              id="btn-map-locate-me"
+              onClick={handleCenterOnUser}
+              title="मेरो स्थान (My Location)"
+              className="bg-white hover:bg-stone-50 text-blue-600 p-2.5 rounded-xl shadow-md border border-stone-300 active:scale-95 transition-all flex items-center justify-center cursor-pointer"
+            >
+              <Locate className="w-4 h-4" />
+            </button>
 
-          {/* Reset Area */}
-          <button
-            id="btn-map-reset-area"
-            onClick={handleCenterTestArea}
-            title="बाढी क्षेत्र (Center Flood Corridor)"
-            className="bg-white hover:bg-stone-50 text-stone-700 p-2.5 rounded-xl shadow-md border border-stone-300 active:scale-95 transition-all flex items-center justify-center cursor-pointer"
-          >
-            <Compass className="w-4 h-4" />
-          </button>
+            {/* Reset Area */}
+            <button
+              id="btn-map-reset-area"
+              onClick={handleCenterTestArea}
+              title="बाढी क्षेत्र (Center Flood Corridor)"
+              className="bg-white hover:bg-stone-50 text-stone-700 p-2.5 rounded-xl shadow-md border border-stone-300 active:scale-95 transition-all flex items-center justify-center cursor-pointer"
+            >
+              <Compass className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Selected Point Bottom Sheet (Only in Full Map mode when user taps a marker) */}

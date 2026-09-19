@@ -2,19 +2,21 @@ import L from 'leaflet';
 
 // Custom SVG icon generator for Leaflet without external asset dependencies
 export const createCitizenMarkerIcon = (accuracyMeters: number = 10) => {
+  const pulseSize = Math.max(52, Math.min(90, accuracyMeters * 2.2));
+
   return L.divIcon({
     className: 'citizen-location-marker',
     html: `
-      <div style="position: relative; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;">
-        <div style="position: absolute; width: 36px; height: 36px; border-radius: 50%; background: rgba(37, 99, 235, 0.25); animation: ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>
-        <div style="position: absolute; width: 22px; height: 22px; border-radius: 50%; background: #2563eb; border: 3px solid #ffffff; box-shadow: 0 2px 8px rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center;">
-          <div style="width: 6px; height: 6px; border-radius: 50%; background: #ffffff;"></div>
+      <div style="position: relative; width: 54px; height: 54px; display: flex; align-items: center; justify-content: center; filter: drop-shadow(0 4px 10px rgba(239,68,68,0.45));">
+        <div style="position: absolute; width: ${pulseSize}px; height: ${pulseSize}px; border-radius: 50%; background: rgba(239, 68, 68, 0.18); border: 2px solid rgba(239,68,68,0.4); animation: pulse 2.2s ease-out infinite;"></div>
+        <div style="position: absolute; width: 26px; height: 26px; border-radius: 50%; background: #ef4444; border: 3px solid #ffffff; box-shadow: 0 0 0 3px rgba(239,68,68,0.15), 0 4px 16px rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center;">
+          <div style="width: 8px; height: 8px; border-radius: 50%; background: #ffffff;"></div>
         </div>
       </div>
     `,
-    iconSize: [36, 36],
-    iconAnchor: [18, 18],
-    popupAnchor: [0, -18],
+    iconSize: [54, 54],
+    iconAnchor: [27, 27],
+    popupAnchor: [0, -20],
   });
 };
 

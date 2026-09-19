@@ -20,7 +20,7 @@ interface HomeProps {
   location: CitizenLocation | null;
   onNavigate: (tab: 'HOME' | 'MAP' | 'REPORT' | 'SAFETY' | 'STATUS') => void;
   onToggleDemoEmergency?: (active: boolean) => void;
-  onRequestLocation: () => void;
+  onRequestLocation: () => Promise<CitizenLocation | void> | CitizenLocation | void;
   latestIncident?: IncidentRecord | null;
 }
 

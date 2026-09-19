@@ -15,7 +15,7 @@ import {
 
 interface MapPageProps {
   location: CitizenLocation | null;
-  onRequestLocation: () => void;
+  onRequestLocation: () => Promise<CitizenLocation | void> | CitizenLocation | void;
   onNavigateReport: () => void;
 }
 
@@ -38,31 +38,31 @@ export const MapPage: React.FC<MapPageProps> = ({
   return (
     <div
       id="map-page-container"
-      className="flex flex-col h-full w-full flex-1 min-h-0 overflow-hidden relative select-none"
-      style={{ height: '100%', width: '100%' }}
+      className="flex flex-col h-full w-full flex-1 min-h-0 overflow-hidden relative select-none bg-stone-100 px-2 pb-2 pt-2 rounded-[28px] border border-stone-200 shadow-lg shadow-stone-300/40 ring-1 ring-white/80"
+      style={{ height: '100%', width: '100%', maxHeight: '72vh', minHeight: '420px' }}
     >
       {/* Top Map Header & Filter Chips */}
-      <div className="bg-stone-900 text-stone-100 px-3 py-2 border-b border-stone-800 shrink-0 z-10 shadow-sm">
-        <div className="flex items-center justify-between mb-1.5">
+      <div className="bg-stone-950 text-stone-100 px-3 py-2 border border-stone-800 rounded-t-2xl rounded-b-xl shrink-0 z-10 shadow-lg shadow-stone-950/20">
+        <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-1.5 truncate">
             <Radio className="w-3.5 h-3.5 text-red-500 animate-pulse shrink-0" />
-            <span className="font-bold text-xs truncate">
+            <span className="font-bold text-[11px] tracking-wide truncate text-stone-100">
               {MAP_CONFIG.areaNameNe}
             </span>
           </div>
-          <span className="text-[10px] font-mono text-stone-400 shrink-0">
-            प्रत्यक्ष उद्धार नक्सा
+          <span className="text-[9px] font-mono uppercase tracking-[0.14em] text-stone-400 shrink-0">
+            Live
           </span>
         </div>
 
         {/* Filter Chips Bar */}
-        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5 text-[11px]">
+        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5 text-[10px]">
           <button
             id="filter-all"
             onClick={() => setFilterType('ALL')}
-            className={`px-2.5 py-0.5 rounded-full whitespace-nowrap transition-colors ${
+            className={`px-2.5 py-1 rounded-full whitespace-nowrap transition-all ${
               filterType === 'ALL'
-                ? 'bg-red-600 text-white font-bold'
+                ? 'bg-red-600 text-white font-bold shadow-sm'
                 : 'bg-stone-800 text-stone-300 hover:bg-stone-700'
             }`}
           >
@@ -71,9 +71,9 @@ export const MapPage: React.FC<MapPageProps> = ({
           <button
             id="filter-safe"
             onClick={() => setFilterType('SAFE_ZONE')}
-            className={`px-2.5 py-0.5 rounded-full whitespace-nowrap transition-colors flex items-center gap-1 ${
+            className={`px-2.5 py-1 rounded-full whitespace-nowrap transition-all flex items-center gap-1 ${
               filterType === 'SAFE_ZONE'
-                ? 'bg-emerald-600 text-white font-bold'
+                ? 'bg-emerald-600 text-white font-bold shadow-sm'
                 : 'bg-stone-800 text-stone-300 hover:bg-stone-700'
             }`}
           >
@@ -83,9 +83,9 @@ export const MapPage: React.FC<MapPageProps> = ({
           <button
             id="filter-flood"
             onClick={() => setFilterType('FLOOD')}
-            className={`px-2.5 py-0.5 rounded-full whitespace-nowrap transition-colors flex items-center gap-1 ${
+            className={`px-2.5 py-1 rounded-full whitespace-nowrap transition-all flex items-center gap-1 ${
               filterType === 'FLOOD'
-                ? 'bg-amber-600 text-white font-bold'
+                ? 'bg-amber-600 text-white font-bold shadow-sm'
                 : 'bg-stone-800 text-stone-300 hover:bg-stone-700'
             }`}
           >
@@ -95,9 +95,9 @@ export const MapPage: React.FC<MapPageProps> = ({
           <button
             id="filter-medical"
             onClick={() => setFilterType('MEDICAL_POST')}
-            className={`px-2.5 py-0.5 rounded-full whitespace-nowrap transition-colors flex items-center gap-1 ${
+            className={`px-2.5 py-1 rounded-full whitespace-nowrap transition-all flex items-center gap-1 ${
               filterType === 'MEDICAL_POST'
-                ? 'bg-blue-600 text-white font-bold'
+                ? 'bg-blue-600 text-white font-bold shadow-sm'
                 : 'bg-stone-800 text-stone-300 hover:bg-stone-700'
             }`}
           >
@@ -110,8 +110,8 @@ export const MapPage: React.FC<MapPageProps> = ({
       {/* Main Full-Height Leaflet Map */}
       <div
         id="map-canvas-wrapper"
-        className="flex-1 min-h-0 relative w-full h-full flex flex-col overflow-hidden"
-        style={{ height: '100%', width: '100%', minHeight: '350px' }}
+        className="flex-1 min-h-0 relative w-full h-full flex flex-col overflow-hidden rounded-b-2xl rounded-t-none border border-stone-200 border-t-0 bg-white shadow-md shadow-stone-200/80"
+        style={{ height: '100%', width: '100%', minHeight: '320px', maxHeight: '62vh' }}
       >
         <LocationMap
           currentLocation={location}
@@ -125,7 +125,7 @@ export const MapPage: React.FC<MapPageProps> = ({
         />
 
         {/* Bottom Legend Pill Bar (Non-intrusive) */}
-        <div className="absolute bottom-20 left-3 right-3 z-[990] pointer-events-none flex justify-center">
+        <div className="absolute bottom-4 left-3 right-3 z-[990] pointer-events-none flex justify-center">
           <div className="pointer-events-auto bg-stone-900/90 backdrop-blur-md text-stone-200 px-3 py-1 rounded-full text-[10px] border border-stone-700 shadow-md flex items-center gap-3">
             <span className="flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-red-500" /> बाढी
@@ -137,18 +137,6 @@ export const MapPage: React.FC<MapPageProps> = ({
               <span className="w-2 h-2 rounded-full bg-blue-500" /> तपाईं
             </span>
           </div>
-        </div>
-
-        {/* Quick Report Emergency floating button over map */}
-        <div className="absolute bottom-4 left-3 right-3 z-[990] max-w-sm mx-auto">
-          <button
-            id="btn-map-quick-report"
-            onClick={onNavigateReport}
-            className="w-full bg-red-600 hover:bg-red-700 text-white font-black py-3 px-4 rounded-2xl shadow-xl flex items-center justify-center gap-2 text-xs uppercase tracking-wide border-2 border-white/20 active:scale-98 transition-all cursor-pointer"
-          >
-            <AlertOctagon className="w-4 h-4" />
-            <span>REPORT EMERGENCY (मद्दत चाहिन्छ)</span>
-          </button>
         </div>
       </div>
     </div>

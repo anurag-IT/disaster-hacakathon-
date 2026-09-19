@@ -30,7 +30,7 @@ import { offlineService } from '../services/offlineService';
 
 interface ReportEmergencyProps {
   location: CitizenLocation | null;
-  onRequestLocation: () => void;
+  onRequestLocation: () => Promise<CitizenLocation | void> | CitizenLocation | void;
   onReportSubmitted: (incident: IncidentRecord) => void;
   onCancel: () => void;
 }

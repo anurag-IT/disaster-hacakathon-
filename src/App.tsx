@@ -27,7 +27,8 @@ import { MAP_CONFIG } from './config/mapConfig';
 export type NavigationTab = 'HOME' | 'MAP' | 'REPORT' | 'SAFETY' | 'STATUS';
 
 export default function App() {
-  const [currentTab, setCurrentTab] = useState<NavigationTab>('HOME');
+  // Temporary live-map test default: open directly on the map view so the Mapbox basemap is visible immediately.
+  const [currentTab, setCurrentTab] = useState<NavigationTab>('MAP');
   const [emergencyStatus, setEmergencyStatus] = useState<EmergencyStatus>({
     active: true,
     type: 'FLOOD',
@@ -52,12 +53,22 @@ export default function App() {
     }
   }, []);
 
-  const requestGpsLocation = useCallback(async () => {
+  const requestGpsLocation = useCallback(async (): Promise<CitizenLocation> => {
     try {
       const loc = await locationService.requestLocation(false);
       setCitizenLocation(loc);
+      return loc;
     } catch (err) {
       console.warn('Location request error:', err);
+      const fallback = {
+        latitude: MAP_CONFIG.center.lat,
+        longitude: MAP_CONFIG.center.lng,
+        accuracy: 25,
+        timestamp: Date.now(),
+        isSimulated: true,
+      } as CitizenLocation;
+      setCitizenLocation(fallback);
+      return fallback;
     }
   }, []);
 
@@ -70,16 +81,23 @@ export default function App() {
       setCitizenLocation(loc);
     });
 
-    // Check previously submitted incidents
-    const saved = emergencyService.getMySavedIncidents();
-    if (saved.length > 0) {
-      setLatestIncident(saved[0]);
-    }
-
     return () => {
       unsubLoc();
     };
   }, [refreshEmergencyStatus, requestGpsLocation]);
+
+  useEffect(() => {
+    if (currentTab === 'MAP') {
+      requestGpsLocation();
+    }
+  }, [currentTab, requestGpsLocation]);
+
+  useEffect(() => {
+    const saved = emergencyService.getMySavedIncidents();
+    if (saved.length > 0) {
+      setLatestIncident(saved[0]);
+    }
+  }, []);
 
   const handleToggleEmergency = async (active: boolean) => {
     const updated = await emergencyService.setDemoEmergencyStatus(active);
@@ -144,7 +162,7 @@ export default function App() {
       <main
         className={`flex-1 w-full mx-auto ${
           currentTab === 'MAP'
-            ? 'h-[calc(100dvh-56px-64px)] max-w-2xl flex flex-col overflow-hidden pb-0'
+            ? 'h-[calc(100dvh-56px-64px)] max-w-5xl flex flex-col overflow-hidden px-3 pb-0 pt-3'
             : 'max-w-md pb-20'
         }`}
         style={
