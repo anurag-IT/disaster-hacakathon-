@@ -1,0 +1,6 @@
+{
+  "name": "Citizen Flood Emergency",
+  "description": "Simple emergency response citizen app for flood disaster situations with offline maps, GPS location, Nepali voice/text emergency reporting, and incident status tracking.",
+  "requestFramePermissions": ["geolocation", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
